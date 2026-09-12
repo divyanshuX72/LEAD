@@ -1,0 +1,8 @@
+{
+  "venvPath": "./backend",
+  "venv": "venv",
+  "pythonInterpreter": "./backend/venv/Scripts/python.exe",
+  "extraPaths": [
+    "./backend"
+  ]
+}
