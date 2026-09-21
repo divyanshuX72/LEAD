@@ -34,7 +34,7 @@ class BraveProvider(SearchProvider):
         params = {
             "q": search_term,
             "count": min(limit, 20),  # Max 20
-            "offset": (page - 1)
+            "offset": (page - 1) * min(limit, 20)
         }
         
         results: list[RawSearchResult] = []
@@ -69,3 +69,5 @@ class BraveProvider(SearchProvider):
                 print(f"Brave search failed: {e}")
                 
         return results, None
+
+

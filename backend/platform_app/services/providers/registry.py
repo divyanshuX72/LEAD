@@ -1,49 +1,66 @@
-"""
-Provider Registry
-
-Discovers and provides access to configured search providers.
-"""
-
 from platform_app.services.providers.base import SearchProvider
+from platform_app.services.providers.brave import BraveProvider
+from platform_app.services.providers.google_maps import GoogleMapsProvider
 from platform_app.services.providers.serper import SerperProvider
 from platform_app.services.providers.tavily import TavilyProvider
-from platform_app.services.providers.google_maps import GoogleMapsProvider
-from platform_app.services.providers.brave import BraveProvider
-from platform_app.services.providers.duckduckgo import DuckDuckGoProvider
 
-# All available providers in preferred order
+
 ALL_PROVIDERS = [
     SerperProvider,
-    TavilyProvider,
     GoogleMapsProvider,
+    TavilyProvider,
     BraveProvider,
-    DuckDuckGoProvider
 ]
 
 
 class ProviderRegistry:
-    """Registry to manage and fetch search providers."""
-    
+    """
+    Registry of reliable API-backed lead discovery providers.
+
+    DuckDuckGo is intentionally excluded because its HTML endpoint
+    currently responds with an anti-bot challenge rather than
+    dependable search results.
+    """
+
     def __init__(self):
         self._providers: dict[str, SearchProvider] = {}
-        # Instantiate all providers
+
         for provider_class in ALL_PROVIDERS:
             provider = provider_class()
             self._providers[provider.name] = provider
-            
-    async def get_available_providers(self) -> list[SearchProvider]:
-        """Get all providers that are correctly configured and available."""
-        available = []
+
+    async def get_available_providers(
+        self,
+    ) -> list[SearchProvider]:
+
+        available: list[SearchProvider] = []
+
         for provider in self._providers.values():
-            if await provider.is_available():
-                available.append(provider)
+            try:
+                if await provider.is_available():
+                    available.append(provider)
+            except Exception as exc:
+                print(
+                    f"[ProviderRegistry] "
+                    f"{provider.name} unavailable: {exc}"
+                )
+
         return available
-        
-    async def get_primary_provider(self) -> SearchProvider | None:
-        """Get the most preferred available provider."""
-        available = await self.get_available_providers()
-        return available[0] if available else None
-        
-    def get_provider(self, name: str) -> SearchProvider | None:
-        """Get a specific provider by name."""
+
+    async def get_primary_provider(
+        self,
+    ) -> SearchProvider | None:
+
+        providers = await self.get_available_providers()
+
+        if not providers:
+            return None
+
+        return providers[0]
+
+    def get_provider(
+        self,
+        name: str,
+    ) -> SearchProvider | None:
+
         return self._providers.get(name)

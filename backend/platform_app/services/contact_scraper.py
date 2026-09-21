@@ -1,121 +1,504 @@
+from __future__ import annotations
+
 import re
-import asyncio
-import httpx
-from bs4 import BeautifulSoup
-from typing import Dict, List, Set, Any, Optional
+from collections import deque
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import httpx
+from bs4 import BeautifulSoup
+
+
 class ContactScraper:
-    EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-z]{2,}', re.IGNORECASE)
-    PHONE_REGEX = re.compile(r'(\+91[\s-]?)?[6-9]\d{9}')
+    """
+    Bounded website crawler for business contact discovery.
 
-    def __init__(self, timeout: int = 8):
+    The crawler is stateless and returns extracted information
+    directly to the lead discovery engine.
+    """
+
+    EMAIL_REGEX = re.compile(
+        r"[a-zA-Z0-9._%+-]+"
+        r"@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+        re.IGNORECASE,
+    )
+
+    PHONE_REGEX = re.compile(
+        r"(?:\+?\d{1,3}[\s().-]?)?"
+        r"(?:\d[\s().-]?){8,14}\d"
+    )
+
+    IMPORTANT_PATH_TERMS = (
+        "contact",
+        "about",
+        "team",
+        "leadership",
+        "management",
+        "sales",
+        "business-development",
+        "projects",
+        "properties",
+        "portfolio",
+    )
+
+    SKIP_EXTENSIONS = (
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".zip",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+    )
+
+    def __init__(
+        self,
+        timeout: float = 8,
+        max_pages: int = 8,
+    ):
         self.timeout = timeout
+        self.max_pages = max_pages
+
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": (
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/120.0 Safari/537.36"
+            )
         }
 
-    async def extract_contacts(self, lead: Dict[str, Any]) -> Dict[str, Optional[List[str]]]:
-        """
-        Extracts MAXIMUM possible phone numbers and emails from a business lead.
-        """
-        results = {
+    async def extract_contacts(
+        self,
+        lead: dict[str, Any],
+    ) -> dict[str, Any]:
+
+        result: dict[str, Any] = {
             "emails": set(),
-            "phone_numbers": set()
+            "phone_numbers": set(),
+            "linkedin_url": None,
+            "instagram_url": None,
+            "facebook_url": None,
+            "contact_name": None,
+            "designation": None,
+            "pages_visited": [],
         }
 
-        # Step 1: Input
-        base_url = lead.get("website") or lead.get("source_url") or ""
-        snippet = lead.get("snippet", "")
+        base_url = str(
+            lead.get("website")
+            or lead.get("source_url")
+            or ""
+        ).strip()
 
-        if base_url and base_url.startswith('http'):
-            parsed = urlparse(base_url)
-            domain = parsed.netloc.lower()
+        if not base_url.startswith("http"):
+            self._extract_from_text(
+                str(lead.get("snippet") or ""),
+                result,
+            )
+            return self._finalize(result)
 
-            # Skip known low-quality / irrelevant domains
-            if not any(skip in domain for skip in ['olx.', 'justdial.com', 'indiamart.com', 'yellowpages.', '.pdf']):
-                # Step 2: Scrape important pages (and main page)
-                paths_to_try = ['', '/contact', '/contact-us', '/about', '/about-us']
-                visited = set()
+        parsed = urlparse(base_url)
 
-                async with httpx.AsyncClient(timeout=self.timeout, headers=self.headers, verify=False, follow_redirects=True) as client:
-                    for path in paths_to_try:
-                        target_url = urljoin(base_url, path)
-                        if target_url in visited:
-                            continue
-                        
-                        visited.add(target_url)
+        if not parsed.netloc:
+            return self._finalize(result)
 
-                        try:
-                            resp = await client.get(target_url)
-                            if resp.status_code == 200 and 'text/html' in resp.headers.get('Content-Type', '').lower():
-                                self._parse_page(resp.text, results)
-                        except Exception:
-                            # Ignore connection errors, timeouts, etc.
-                            pass
+        hostname = parsed.netloc.lower()
 
-        # Step 6: Fallback (VERY IMPORTANT)
-        # If website has NO data, use search snippet text
-        if not results["emails"] and not results["phone_numbers"] and snippet:
-            self._extract_from_text(snippet, results)
+        if any(
+            blocked in hostname
+            for blocked in (
+                "olx.",
+                "justdial.",
+                "indiamart.",
+                "yellowpages.",
+                "facebook.com",
+                "instagram.com",
+                "linkedin.com",
+            )
+        ):
+            self._extract_from_text(
+                str(lead.get("snippet") or ""),
+                result,
+            )
+            return self._finalize(result)
 
-        # Step 7: Final Rule
-        # IF still nothing found: phone = null, email = null
-        emails_list = list(results["emails"])
-        phones_list = list(results["phone_numbers"])
-        
-        return {
-            "phone_numbers": phones_list if phones_list else None,
-            "emails": emails_list if emails_list else None
-        }
+        origin = f"{parsed.scheme}://{parsed.netloc}"
 
-    def _parse_page(self, html: str, results: Dict[str, Any]):
-        soup = BeautifulSoup(html, 'html.parser')
+        queue: deque[str] = deque(
+            [
+                base_url,
+                urljoin(origin, "/contact"),
+                urljoin(origin, "/contact-us"),
+                urljoin(origin, "/about"),
+                urljoin(origin, "/about-us"),
+                urljoin(origin, "/team"),
+                urljoin(origin, "/leadership"),
+                urljoin(origin, "/projects"),
+            ]
+        )
 
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.extract()
+        visited: set[str] = set()
 
-        # Step 3: Search inside HTML text
-        text = soup.get_text(separator=' ')
-        self._extract_from_text(text, results)
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=self.headers,
+            follow_redirects=True,
+            verify=False,
+        ) as client:
 
-        # Also search tel: and mailto: links
-        for a in soup.find_all('a', href=True):
-            href = a.get('href', '').strip()
-            if href.lower().startswith('mailto:'):
-                email = href[7:].split('?')[0].strip()
-                if self.EMAIL_REGEX.match(email):
-                    results["emails"].add(email.lower())
-            elif href.lower().startswith('tel:'):
-                phone = href[4:].strip()
-                self._add_phone(phone, results["phone_numbers"])
+            while queue and len(visited) < self.max_pages:
 
-    def _extract_from_text(self, text: str, results: Dict[str, Any]):
-        emails = self.EMAIL_REGEX.findall(text)
-        for e in emails:
-            e_lower = e.lower()
-            if not e_lower.endswith('.png') and not e_lower.endswith('.jpg'):
-                results["emails"].add(e_lower)
+                raw_url = queue.popleft()
 
-        phones = self.PHONE_REGEX.finditer(text)
-        for match in phones:
-            p = match.group(0)
-            self._add_phone(p, results["phone_numbers"])
+                url = self._normalize_url(
+                    str(raw_url)
+                )
 
-    def _add_phone(self, phone: str, phone_set: Set[str]):
-        # Step 4: Clean & Filter
-        p_clean = re.sub(r'[^\d+]', '', phone)
-        
-        # fake numbers
-        if "1234567890" in p_clean or "0123456789" in p_clean:
+                if not url or url in visited:
+                    continue
+
+                if not self._same_domain(
+                    url,
+                    hostname,
+                ):
+                    continue
+
+                if self._is_ignored_url(url):
+                    continue
+
+                visited.add(url)
+
+                try:
+                    response = await client.get(url)
+                except Exception:
+                    continue
+
+                result["pages_visited"].append(url)
+
+                content_type = (
+                    response.headers.get(
+                        "content-type",
+                        "",
+                    ).lower()
+                )
+
+                if (
+                    response.status_code != 200
+                    or "text/html" not in content_type
+                ):
+                    continue
+
+                self._parse_page(
+                    response.text,
+                    result,
+                )
+
+                if len(visited) >= self.max_pages:
+                    break
+
+                soup = BeautifulSoup(
+                    response.text,
+                    "html.parser",
+                )
+
+                for anchor in soup.find_all(
+                    "a",
+                    href=True,
+                ):
+                    href_value = anchor.get("href")
+
+                    if not isinstance(
+                        href_value,
+                        str,
+                    ):
+                        continue
+
+                    href = href_value.strip()
+
+                    if not href:
+                        continue
+
+                    candidate = self._normalize_url(
+                        urljoin(
+                            url,
+                            href,
+                        )
+                    )
+
+                    if not candidate:
+                        continue
+
+                    if not self._same_domain(
+                        candidate,
+                        hostname,
+                    ):
+                        continue
+
+                    if self._is_ignored_url(
+                        candidate
+                    ):
+                        continue
+
+                    if candidate in visited:
+                        continue
+
+                    path = urlparse(
+                        candidate
+                    ).path.lower()
+
+                    anchor_text = anchor.get_text(
+                        " ",
+                        strip=True,
+                    ).lower()
+
+                    priority = (
+                        any(
+                            term in path
+                            for term in self.IMPORTANT_PATH_TERMS
+                        )
+                        or any(
+                            term in anchor_text
+                            for term in self.IMPORTANT_PATH_TERMS
+                        )
+                    )
+
+                    if priority:
+                        queue.appendleft(candidate)
+                    else:
+                        queue.append(candidate)
+
+        if (
+            not result["emails"]
+            and not result["phone_numbers"]
+        ):
+            self._extract_from_text(
+                str(lead.get("snippet") or ""),
+                result,
+            )
+
+        return self._finalize(result)
+
+    def _parse_page(
+        self,
+        html: str,
+        result: dict[str, Any],
+    ) -> None:
+
+        soup = BeautifulSoup(
+            html,
+            "html.parser",
+        )
+
+        for element in soup(
+            ["script", "style", "noscript"]
+        ):
+            element.extract()
+
+        text = soup.get_text(
+            separator=" ",
+            strip=True,
+        )
+
+        self._extract_from_text(
+            text,
+            result,
+        )
+
+        for anchor in soup.find_all(
+            "a",
+            href=True,
+        ):
+            href_value = anchor.get("href")
+
+            if not isinstance(
+                href_value,
+                str,
+            ):
+                continue
+
+            href = href_value.strip()
+            lower = href.lower()
+
+            if lower.startswith("mailto:"):
+                email = (
+                    href[7:]
+                    .split("?")[0]
+                    .strip()
+                )
+
+                if self.EMAIL_REGEX.fullmatch(email):
+                    result["emails"].add(
+                        email.lower()
+                    )
+
+            elif lower.startswith("tel:"):
+                self._add_phone(
+                    href[4:],
+                    result["phone_numbers"],
+                )
+
+            elif "linkedin.com/" in lower:
+                if not result["linkedin_url"]:
+                    result["linkedin_url"] = href
+
+            elif "instagram.com/" in lower:
+                if not result["instagram_url"]:
+                    result["instagram_url"] = href
+
+            elif "facebook.com/" in lower:
+                if not result["facebook_url"]:
+                    result["facebook_url"] = href
+
+    def _extract_from_text(
+        self,
+        text: str,
+        result: dict[str, Any],
+    ) -> None:
+
+        if not text:
             return
-            
-        digits_only = re.sub(r'\D', '', p_clean)
-        
-        # short numbers
-        if 10 <= len(digits_only) <= 15:
-            # duplicates are handled by set
-            # Avoid sequential/repeating garbage like "0000000000"
-            if len(set(digits_only)) > 2:
-                phone_set.add(phone.strip())
+
+        for email in self.EMAIL_REGEX.findall(text):
+            email = email.lower().strip()
+
+            if not email.endswith(
+                (".png", ".jpg", ".jpeg")
+            ):
+                result["emails"].add(email)
+
+        for match in self.PHONE_REGEX.finditer(text):
+            self._add_phone(
+                match.group(0),
+                result["phone_numbers"],
+            )
+
+    def _add_phone(
+        self,
+        phone: str,
+        phone_set: set[str],
+    ) -> None:
+
+        digits = re.sub(
+            r"\D",
+            "",
+            phone,
+        )
+
+        if len(digits) < 10 or len(digits) > 15:
+            return
+
+        if len(set(digits)) <= 2:
+            return
+
+        if (
+            "1234567890" in digits
+            or "0123456789" in digits
+        ):
+            return
+
+        phone_set.add(f"+{digits}")
+
+    @staticmethod
+    def _normalize_url(
+        url: str,
+    ) -> str | None:
+
+        try:
+            parsed = urlparse(url)
+
+            if parsed.scheme not in (
+                "http",
+                "https",
+            ):
+                return None
+
+            if not parsed.netloc:
+                return None
+
+            path = parsed.path.rstrip("/")
+
+            return (
+                f"{parsed.scheme}://"
+                f"{parsed.netloc}"
+                f"{path}"
+            )
+
+        except Exception:
+            return None
+
+    @staticmethod
+    def _same_domain(
+        url: str,
+        hostname: str,
+    ) -> bool:
+
+        current = urlparse(url).netloc.lower()
+
+        current = current.removeprefix("www.")
+        hostname = hostname.removeprefix("www.")
+
+        return (
+            current == hostname
+            or current.endswith(
+                f".{hostname}"
+            )
+        )
+
+    def _is_ignored_url(
+        self,
+        url: str,
+    ) -> bool:
+
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+
+        if path.endswith(
+            self.SKIP_EXTENSIONS
+        ):
+            return True
+
+        return any(
+            blocked in parsed.netloc.lower()
+            for blocked in (
+                "login.",
+                "accounts.",
+            )
+        )
+
+    @staticmethod
+    def _finalize(
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+
+        return {
+            "emails": sorted(
+                result["emails"]
+            ),
+            "phone_numbers": sorted(
+                result["phone_numbers"]
+            ),
+            "linkedin_url": result[
+                "linkedin_url"
+            ],
+            "instagram_url": result[
+                "instagram_url"
+            ],
+            "facebook_url": result[
+                "facebook_url"
+            ],
+            "contact_name": result[
+                "contact_name"
+            ],
+            "designation": result[
+                "designation"
+            ],
+            "pages_visited": result[
+                "pages_visited"
+            ],
+        }
