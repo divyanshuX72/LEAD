@@ -1,0 +1,1 @@
+"""Schemas for the ATREAL Lead Capture Agent."""
