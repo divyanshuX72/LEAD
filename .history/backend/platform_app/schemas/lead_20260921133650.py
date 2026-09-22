@@ -60,81 +60,23 @@ class MahaRERAEvidence(BaseModel):
 class WebsiteProject(BaseModel):
     name: str
     url: str
-
     location: str | None = None
     description: str | None = None
-
-    # Only active commercial lifecycle states
-    # should be returned by the researcher.
-    status: str = "unknown"
-
     signals: list[str] = Field(
         default_factory=list
     )
-
     evidence: list[str] = Field(
-        default_factory=list
-    )
-
-    # Website-extracted MahaRERA registration.
-    # Null is intentional when the website does not
-    # publish a registration number.
-    maharera_registration_number: str | None = None
-
-    maharera_registration_numbers: list[str] = Field(
         default_factory=list
     )
 
 
 class WebsiteResearchEvidence(BaseModel):
     verified: bool = False
-
     canonical_url: str | None = None
-
     company_identity_evidence: list[str] = Field(
         default_factory=list
     )
-
-    # Completed projects are excluded by the researcher.
     projects: list[WebsiteProject] = Field(
-        default_factory=list
-    )
-
-
-class LeadProject(BaseModel):
-    name: str
-    website_url: str | None = None
-    location: str | None = None
-
-    status: str = "unknown"
-
-    signals: list[str] = Field(
-        default_factory=list
-    )
-
-    evidence: list[str] = Field(
-        default_factory=list
-    )
-
-    maharera_registration_number: str | None = None
-
-    maharera_verified: bool = False
-    maharera_match_type: str = "not_verified"
-    maharera_match_score: float = Field(
-        default=0.0,
-        ge=0,
-        le=100,
-    )
-
-    maharera_project_name: str | None = None
-    maharera_promoter_name: str | None = None
-    maharera_location: str | None = None
-    maharera_pincode: str | None = None
-    maharera_district: str | None = None
-    maharera_last_modified: str | None = None
-    maharera_source_url: str | None = None
-
-    maharera_evidence: list[str] = Field(
         default_factory=list
     )
 
@@ -143,9 +85,7 @@ class LeadEvidence(BaseModel):
     signals: list[str] = Field(
         default_factory=list
     )
-
     source_count: int = 0
-
     website_verified: bool = False
     contact_verified: bool = False
 
@@ -167,7 +107,6 @@ class LeadRecord(BaseModel):
     emails: list[str] = Field(
         default_factory=list
     )
-
     phones: list[str] = Field(
         default_factory=list
     )
@@ -198,20 +137,12 @@ class LeadRecord(BaseModel):
 
     quality_status: str = "valid"
 
-    # 0-100 evidence score.
     ranking_score: float = Field(
         ge=0,
         le=100,
     )
 
-    priority: str = "low"
-
     ranking_reasons: list[str] = Field(
-        default_factory=list
-    )
-
-    # Active/upcoming projects only.
-    projects: list[LeadProject] = Field(
         default_factory=list
     )
 

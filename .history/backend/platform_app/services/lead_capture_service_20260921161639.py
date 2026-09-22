@@ -19,10 +19,18 @@ from platform_app.schemas.lead import (
     WebsiteProject,
     WebsiteResearchEvidence,
 )
-from platform_app.services.contact_scraper import ContactScraper
-from platform_app.services.maharera_verifier import MahaRERAVerifier
-from platform_app.services.providers.registry import ProviderRegistry
-from platform_app.services.search_strategy import SearchStrategyEngine
+from platform_app.services.contact_scraper import (
+    ContactScraper,
+)
+from platform_app.services.maharera_verifier import (
+    MahaRERAVerifier,
+)
+from platform_app.services.providers.registry import (
+    ProviderRegistry,
+)
+from platform_app.services.search_strategy import (
+    SearchStrategyEngine,
+)
 from platform_app.services.website_project_researcher import (
     WebsiteProjectResearcher,
 )
@@ -54,22 +62,45 @@ class LeadCaptureService:
     def __init__(self):
         self.settings = get_settings()
 
-        self.provider_registry = ProviderRegistry()
+        self.provider_registry = (
+            ProviderRegistry()
+        )
 
-        self.strategy_engine = SearchStrategyEngine()
+        self.strategy_engine = (
+            SearchStrategyEngine()
+        )
 
         self.scraper = ContactScraper(
-            timeout=self.settings.SCRAPE_TIMEOUT_SECONDS,
-            max_pages=self.settings.MAX_WEBSITE_PAGES,
+            timeout=(
+                self.settings
+                .SCRAPE_TIMEOUT_SECONDS
+            ),
+            max_pages=(
+                self.settings
+                .MAX_WEBSITE_PAGES
+            ),
         )
 
-        self.maharera_verifier = MahaRERAVerifier(
-            timeout=self.settings.SCRAPE_TIMEOUT_SECONDS,
+        self.maharera_verifier = (
+            MahaRERAVerifier(
+                timeout=(
+                    self.settings
+                    .SCRAPE_TIMEOUT_SECONDS
+                ),
+            )
         )
 
-        self.website_project_researcher = WebsiteProjectResearcher(
-            timeout=self.settings.SCRAPE_TIMEOUT_SECONDS,
-            max_pages=self.settings.MAX_WEBSITE_PAGES,
+        self.website_project_researcher = (
+            WebsiteProjectResearcher(
+                timeout=(
+                    self.settings
+                    .SCRAPE_TIMEOUT_SECONDS
+                ),
+                max_pages=(
+                    self.settings
+                    .MAX_WEBSITE_PAGES
+                ),
+            )
         )
 
     # =============================================================
@@ -85,7 +116,10 @@ class LeadCaptureService:
 
         started = time.monotonic()
 
-        keywords = self._clean_keywords(keywords)
+        keywords = self._clean_keywords(
+            keywords
+        )
+
         location = location.strip()
 
         if not keywords:
@@ -108,9 +142,12 @@ class LeadCaptureService:
             self.settings.MAX_SEARCH_LIMIT,
         )
 
-        strategy = await self.strategy_engine.generate_strategy(
-            keywords=keywords,
-            location=location,
+        strategy = (
+            await self.strategy_engine
+            .generate_strategy(
+                keywords=keywords,
+                location=location,
+            )
         )
 
         providers = (
@@ -123,10 +160,13 @@ class LeadCaptureService:
                 "No search providers are configured."
             )
 
-        raw_results: list[dict[str, Any]] = []
+        raw_results: list[
+            dict[str, Any]
+        ] = []
 
         semaphore = asyncio.Semaphore(
-            self.settings.MAX_CONCURRENT_RESEARCH
+            self.settings
+            .MAX_CONCURRENT_RESEARCH
         )
 
         async def run_search(
@@ -136,21 +176,29 @@ class LeadCaptureService:
 
             async with semaphore:
 
-                results: list[dict[str, Any]] = []
+                results: list[
+                    dict[str, Any]
+                ] = []
+
                 page_token: str | None = None
 
                 for page in range(
                     1,
-                    self.settings.MAX_PAGES_PER_PROVIDER + 1,
+                    self.settings
+                    .MAX_PAGES_PER_PROVIDER
+                    + 1,
                 ):
 
                     if (
-                        time.monotonic() - started
-                        > self.settings.DISCOVERY_TIMEOUT_SECONDS
+                        time.monotonic()
+                        - started
+                        > self.settings
+                        .DISCOVERY_TIMEOUT_SECONDS
                     ):
                         break
 
                     try:
+
                         (
                             page_results,
                             next_token,
@@ -158,7 +206,8 @@ class LeadCaptureService:
                             keyword,
                             location=location,
                             limit=min(
-                                self.settings.MAX_SEARCH_RESULTS_PER_PROVIDER,
+                                self.settings
+                                .MAX_SEARCH_RESULTS_PER_PROVIDER,
                                 20,
                             ),
                             page=page,
@@ -177,11 +226,14 @@ class LeadCaptureService:
                         break
 
                     for result in page_results:
+
                         results.append(
                             {
                                 "raw": result,
                                 "keyword": keyword,
-                                "provider": provider.name,
+                                "provider": (
+                                    provider.name
+                                ),
                             }
                         )
 
@@ -193,7 +245,10 @@ class LeadCaptureService:
                 return results
 
         tasks = [
-            run_search(provider, keyword)
+            run_search(
+                provider,
+                keyword,
+            )
             for provider in providers
             for keyword in strategy.keywords
         ]
@@ -205,24 +260,39 @@ class LeadCaptureService:
 
         for result in completed:
 
-            if isinstance(result, BaseException):
+            if isinstance(
+                result,
+                BaseException,
+            ):
                 print(
                     "[LeadCapture] "
                     f"Search task failed: {result}"
                 )
                 continue
 
-            if isinstance(result, list):
-                raw_results.extend(result)
+            if isinstance(
+                result,
+                list,
+            ):
+                raw_results.extend(
+                    result
+                )
 
-        deduplicated = self._deduplicate_raw_results(
-            raw_results
+        deduplicated = (
+            self._deduplicate_raw_results(
+                raw_results
+            )
         )
 
+        # ---------------------------------------------------------
         # Each builder is researched sequentially.
         # No Google Maps request occurs here.
-        enriched = await self._enrich_results(
-            deduplicated
+        # ---------------------------------------------------------
+
+        enriched = (
+            await self._enrich_results(
+                deduplicated
+            )
         )
 
         leads: list[LeadRecord] = []
@@ -244,7 +314,8 @@ class LeadCaptureService:
 
         rejected = max(
             0,
-            len(enriched) - len(leads),
+            len(enriched)
+            - len(leads),
         )
 
         providers_used = sorted(
@@ -255,7 +326,9 @@ class LeadCaptureService:
         )
 
         leads.sort(
-            key=lambda lead: lead.ranking_score,
+            key=lambda lead: (
+                lead.ranking_score
+            ),
             reverse=True,
         )
 
@@ -266,13 +339,17 @@ class LeadCaptureService:
             stats=LeadDiscoveryStats(
                 requested=limit,
                 returned=len(leads),
-                raw_results=len(raw_results),
+                raw_results=len(
+                    raw_results
+                ),
                 duplicates_removed=max(
                     0,
                     duplicates_removed,
                 ),
                 rejected=rejected,
-                providers_used=providers_used,
+                providers_used=(
+                    providers_used
+                ),
             ),
         )
 
@@ -282,10 +359,16 @@ class LeadCaptureService:
 
     async def _enrich_results(
         self,
-        results: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+        results: list[
+            dict[str, Any]
+        ],
+    ) -> list[
+        dict[str, Any]
+    ]:
 
-        enriched: list[dict[str, Any]] = []
+        enriched: list[
+            dict[str, Any]
+        ] = []
 
         for index, item in enumerate(
             results,
@@ -294,8 +377,10 @@ class LeadCaptureService:
 
             try:
 
-                data = await self._enrich_single_result(
-                    item
+                data = (
+                    await self._enrich_single_result(
+                        item
+                    )
                 )
 
                 enriched.append(data)
@@ -315,29 +400,29 @@ class LeadCaptureService:
                     f"{exc}"
                 )
 
-                # Preserve the builder even if enrichment
-                # fails. This allows legitimate low-priority
-                # leads to remain in the result set.
                 try:
-
-                    fallback = self._raw_to_dict(
-                        item["raw"],
-                        item["keyword"],
-                        item["provider"],
+                    fallback = (
+                        self._raw_to_dict(
+                            item["raw"],
+                            item["keyword"],
+                            item["provider"],
+                        )
                     )
 
-                    fallback["website_research"] = None
-                    fallback["project_verifications"] = []
+                    fallback[
+                        "website_research"
+                    ] = None
 
-                    enriched.append(fallback)
+                    fallback[
+                        "project_verifications"
+                    ] = []
 
-                except Exception as fallback_exc:
-
-                    print(
-                        "[LeadCapture] "
-                        f"Builder fallback failed: "
-                        f"{fallback_exc}"
+                    enriched.append(
+                        fallback
                     )
+
+                except Exception:
+                    pass
 
         return enriched
 
@@ -354,28 +439,10 @@ class LeadCaptureService:
             item["provider"],
         )
 
-        # Preserve any metadata already accumulated
-        # during deduplication.
-        existing_keywords = item.get(
-            "matched_keywords",
-            [],
-        )
-
-        existing_sources = item.get(
-            "sources",
-            [],
-        )
-
-        if existing_keywords:
-            data["matched_keywords"] = self._unique(
-                existing_keywords
-            )
-
-        if existing_sources:
-            data["sources"] = existing_sources
-
         business_name = (
-            data.get("business_name")
+            data.get(
+                "business_name"
+            )
             or ""
         )
 
@@ -385,19 +452,18 @@ class LeadCaptureService:
         # ---------------------------------------------------------
 
         try:
-
-            scraped = await self.scraper.extract_contacts(
-                data
+            scraped = (
+                await self.scraper
+                .extract_contacts(
+                    data
+                )
             )
-
         except Exception as exc:
-
             print(
                 "[LeadCapture] "
                 f"Contact scraping failed "
                 f"for {business_name}: {exc}"
             )
-
             scraped = {}
 
         data["emails"] = (
@@ -406,28 +472,40 @@ class LeadCaptureService:
         )
 
         data["phones"] = (
-            scraped.get("phone_numbers")
+            scraped.get(
+                "phone_numbers"
+            )
             or []
         )
 
-        data["linkedin_url"] = scraped.get(
-            "linkedin_url"
+        data["linkedin_url"] = (
+            scraped.get(
+                "linkedin_url"
+            )
         )
 
-        data["instagram_url"] = scraped.get(
-            "instagram_url"
+        data["instagram_url"] = (
+            scraped.get(
+                "instagram_url"
+            )
         )
 
-        data["facebook_url"] = scraped.get(
-            "facebook_url"
+        data["facebook_url"] = (
+            scraped.get(
+                "facebook_url"
+            )
         )
 
-        data["contact_name"] = scraped.get(
-            "contact_name"
+        data["contact_name"] = (
+            scraped.get(
+                "contact_name"
+            )
         )
 
-        data["designation"] = scraped.get(
-            "designation"
+        data["designation"] = (
+            scraped.get(
+                "designation"
+            )
         )
 
         # ---------------------------------------------------------
@@ -435,12 +513,15 @@ class LeadCaptureService:
         # Builder website -> active/upcoming projects
         # ---------------------------------------------------------
 
-        website = data.get("website")
+        website = data.get(
+            "website"
+        )
 
         try:
 
             website_research = (
-                await self.website_project_researcher.research(
+                await self.website_project_researcher
+                .research(
                     website=website,
                     business_name=business_name,
                 )
@@ -456,7 +537,9 @@ class LeadCaptureService:
 
             website_research = None
 
-        data["website_research"] = website_research
+        data["website_research"] = (
+            website_research
+        )
 
         # ---------------------------------------------------------
         # STEP 3
@@ -471,7 +554,9 @@ class LeadCaptureService:
 
         if website_research is not None:
 
-            for project in website_research.projects:
+            for project in (
+                website_research.projects
+            ):
 
                 registrations = (
                     project.maharera_registration_numbers
@@ -482,10 +567,9 @@ class LeadCaptureService:
                     )
                 )
 
-                # A project without a RERA number is intentionally
-                # retained with null.
+                # A project without a RERA number is
+                # intentionally retained with null.
                 if not registrations:
-
                     project_verifications.append(
                         {
                             "website_project": project,
@@ -493,7 +577,6 @@ class LeadCaptureService:
                             "verification": None,
                         }
                     )
-
                     continue
 
                 # Verify every registration number published
@@ -503,16 +586,25 @@ class LeadCaptureService:
                     try:
 
                         verification = (
-                            await self.maharera_verifier.verify_registration(
+                            await self.maharera_verifier
+                            .verify_registration(
                                 registration_number=(
                                     registration_number
                                 ),
-                                project_name=project.name,
-                                builder_name=business_name,
+                                project_name=(
+                                    project.name
+                                ),
+                                builder_name=(
+                                    business_name
+                                ),
                                 location=(
                                     project.location
-                                    or data.get("address")
-                                    or data.get("city")
+                                    or data.get(
+                                        "address"
+                                    )
+                                    or data.get(
+                                        "city"
+                                    )
                                 ),
                             )
                         )
@@ -535,13 +627,15 @@ class LeadCaptureService:
                             "registration_number": (
                                 registration_number
                             ),
-                            "verification": verification,
+                            "verification": (
+                                verification
+                            ),
                         }
                     )
 
-        data["project_verifications"] = (
-            project_verifications
-        )
+        data[
+            "project_verifications"
+        ] = project_verifications
 
         return data
 
@@ -556,7 +650,9 @@ class LeadCaptureService:
     ) -> LeadRecord | None:
 
         business_name = self._clean_text(
-            data.get("business_name")
+            data.get(
+                "business_name"
+            )
         )
 
         if not business_name:
@@ -567,8 +663,13 @@ class LeadCaptureService:
         ):
             return None
 
-        website = data.get("website")
-        domain = data.get("domain")
+        website = data.get(
+            "website"
+        )
+
+        domain = data.get(
+            "domain"
+        )
 
         emails = self._unique(
             data.get("emails") or []
@@ -578,7 +679,9 @@ class LeadCaptureService:
             data.get("phones") or []
         )
 
-        sources: list[LeadSource] = []
+        sources: list[
+            LeadSource
+        ] = []
 
         for source in data.get(
             "sources",
@@ -587,10 +690,16 @@ class LeadCaptureService:
 
             sources.append(
                 LeadSource(
-                    provider=source["provider"],
-                    url=source.get("url"),
-                    matched_keyword=source.get(
-                        "matched_keyword"
+                    provider=(
+                        source["provider"]
+                    ),
+                    url=source.get(
+                        "url"
+                    ),
+                    matched_keyword=(
+                        source.get(
+                            "matched_keyword"
+                        )
                     ),
                 )
             )
@@ -599,12 +708,14 @@ class LeadCaptureService:
             data
         )
 
-        score, priority, reasons = self._rank(
-            data=data,
-            projects=projects,
-            website=website,
-            emails=emails,
-            phones=phones,
+        score, priority, reasons = (
+            self._rank(
+                data=data,
+                projects=projects,
+                website=website,
+                emails=emails,
+                phones=phones,
+            )
         )
 
         has_contact = bool(
@@ -622,7 +733,8 @@ class LeadCaptureService:
                 [],
             )
             if (
-                item.get("verification") is not None
+                item.get("verification")
+                is not None
                 and item["verification"].verified
             )
         ]
@@ -631,7 +743,9 @@ class LeadCaptureService:
             MahaRERAProject
         ] = []
 
-        maharera_evidence_lines: list[str] = []
+        maharera_evidence_lines: list[
+            str
+        ] = []
 
         strongest_verification = None
 
@@ -647,8 +761,9 @@ class LeadCaptureService:
             if verification is None:
                 continue
 
-            for project in verification.projects:
-
+            for project in (
+                verification.projects
+            ):
                 all_rera_projects.append(
                     MahaRERAProject(
                         registration_number=(
@@ -663,8 +778,12 @@ class LeadCaptureService:
                         location=(
                             project.location
                         ),
-                        pincode=project.pincode,
-                        district=project.district,
+                        pincode=(
+                            project.pincode
+                        ),
+                        district=(
+                            project.district
+                        ),
                         last_modified=(
                             project.last_modified
                         ),
@@ -686,44 +805,60 @@ class LeadCaptureService:
                 or verification.match_score
                 > strongest_verification.match_score
             ):
-                strongest_verification = verification
+                strongest_verification = (
+                    verification
+                )
 
         if strongest_verification is not None:
 
-            aggregate_maharera = MahaRERAEvidence(
-                verified=bool(
-                    verified_project_records
-                ),
-                match_type=(
-                    strongest_verification.match_type
-                ),
-                match_score=(
-                    strongest_verification.match_score
-                ),
-                promoter_name=(
-                    strongest_verification.promoter_name
-                ),
-                projects=self._dedupe_maharera_projects(
-                    all_rera_projects
-                ),
-                source_url=(
-                    strongest_verification.source_url
-                ),
-                evidence=self._unique(
-                    maharera_evidence_lines
-                ),
+            aggregate_maharera = (
+                MahaRERAEvidence(
+                    verified=(
+                        bool(
+                            verified_project_records
+                        )
+                    ),
+                    match_type=(
+                        strongest_verification
+                        .match_type
+                    ),
+                    match_score=(
+                        strongest_verification
+                        .match_score
+                    ),
+                    promoter_name=(
+                        strongest_verification
+                        .promoter_name
+                    ),
+                    projects=(
+                        self._dedupe_maharera_projects(
+                            all_rera_projects
+                        )
+                    ),
+                    source_url=(
+                        strongest_verification
+                        .source_url
+                    ),
+                    evidence=(
+                        self._unique(
+                            maharera_evidence_lines
+                        )
+                    ),
+                )
             )
 
         else:
 
-            aggregate_maharera = MahaRERAEvidence(
-                verified=False,
-                match_type="not_available",
-                evidence=[
-                    "No MahaRERA registration "
-                    "number was available for "
-                    "verification."
-                ],
+            aggregate_maharera = (
+                MahaRERAEvidence(
+                    verified=False,
+                    match_type="not_available",
+                    evidence=[
+                        "No MahaRERA registration "
+                        "number was available for "
+                        "verification."
+                    ],
+                )
             )
 
         # ---------------------------------------------------------
@@ -752,31 +887,42 @@ class LeadCaptureService:
                         project.maharera_registration_numbers
                     ),
                 )
-                for project in website_research.projects
+                for project in (
+                    website_research.projects
+                )
             ]
 
-            website_evidence = WebsiteResearchEvidence(
-                verified=website_research.verified,
-                canonical_url=(
-                    website_research.canonical_url
-                ),
-                company_identity_evidence=(
-                    website_research.company_identity_evidence
-                ),
-                projects=website_projects,
+            website_evidence = (
+                WebsiteResearchEvidence(
+                    verified=(
+                        website_research.verified
+                    ),
+                    canonical_url=(
+                        website_research.canonical_url
+                    ),
+                    company_identity_evidence=(
+                        website_research
+                        .company_identity_evidence
+                    ),
+                    projects=website_projects,
+                )
             )
 
         else:
 
-            website_evidence = WebsiteResearchEvidence(
-                verified=False,
-                canonical_url=website,
-                projects=[],
+            website_evidence = (
+                WebsiteResearchEvidence(
+                    verified=False,
+                    canonical_url=website,
+                    projects=[],
+                )
             )
 
         evidence = LeadEvidence(
             signals=reasons,
-            source_count=len(sources),
+            source_count=len(
+                sources
+            ),
             website_verified=(
                 bool(website)
                 and (
@@ -792,51 +938,81 @@ class LeadCaptureService:
 
         return LeadRecord(
             business_name=business_name,
+
             contact_name=data.get(
                 "contact_name"
             ),
+
             designation=data.get(
                 "designation"
             ),
+
             emails=emails,
             phones=phones,
+
             website=website,
             domain=domain,
+
             linkedin_url=data.get(
                 "linkedin_url"
             ),
+
             instagram_url=data.get(
                 "instagram_url"
             ),
+
             facebook_url=data.get(
                 "facebook_url"
             ),
+
             address=data.get(
                 "address"
             ),
+
             city=(
                 data.get("city")
                 or location
             ),
-            state=data.get("state"),
-            country=data.get("country"),
+
+            state=data.get(
+                "state"
+            ),
+
+            country=data.get(
+                "country"
+            ),
+
             matched_keywords=self._unique(
                 data.get(
                     "matched_keywords",
                     [],
                 )
             ),
+
             sources=sources,
-            rating=data.get("rating"),
+
+            rating=data.get(
+                "rating"
+            ),
+
             review_count=data.get(
                 "review_count"
             ),
-            place_id=data.get("place_id"),
+
+            place_id=data.get(
+                "place_id"
+            ),
+
             quality_status="valid",
+
             ranking_score=score,
+
             priority=priority,
+
             ranking_reasons=reasons,
+
             projects=projects,
+
             evidence=evidence,
         )
 
@@ -849,20 +1025,31 @@ class LeadCaptureService:
         data: dict[str, Any],
     ) -> list[LeadProject]:
 
-        result: list[LeadProject] = []
+        result: list[
+            LeadProject
+        ] = []
 
-        seen: set[tuple[str, str]] = set()
+        seen: set[
+            tuple[str, str]
+        ] = set()
 
         for item in data.get(
             "project_verifications",
             [],
         ):
 
-            project = item["website_project"]
-            verification = item.get("verification")
+            project = item[
+                "website_project"
+            ]
+
+            verification = item.get(
+                "verification"
+            )
 
             registration_number = (
-                item.get("registration_number")
+                item.get(
+                    "registration_number"
+                )
                 or project.maharera_registration_number
             )
 
@@ -881,19 +1068,20 @@ class LeadCaptureService:
             maharera_project = None
 
             if verification is not None:
-
-                for candidate in verification.projects:
-
+                for candidate in (
+                    verification.projects
+                ):
                     if (
                         candidate.registration_number
                         == registration_number
                     ):
-                        maharera_project = candidate
+                        maharera_project = (
+                            candidate
+                        )
                         break
 
-                if (
-                    maharera_project is None
-                    and verification.projects
+                if maharera_project is None and (
+                    verification.projects
                 ):
                     maharera_project = (
                         verification.projects[0]
@@ -992,6 +1180,7 @@ class LeadCaptureService:
     ]:
 
         score = 0.0
+
         reasons: list[str] = []
 
         # ---------------------------------------------------------
@@ -1184,9 +1373,14 @@ class LeadCaptureService:
             )
 
         return (
-            min(score, 100),
+            min(
+                score,
+                100,
+            ),
             priority,
-            self._unique(reasons),
+            self._unique(
+                reasons
+            ),
         )
 
     # =============================================================
@@ -1222,8 +1416,12 @@ class LeadCaptureService:
 
     def _deduplicate_raw_results(
         self,
-        results: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
+        results: list[
+            dict[str, Any]
+        ],
+    ) -> list[
+        dict[str, Any]
+    ]:
 
         canonical: dict[
             str,
@@ -1243,49 +1441,37 @@ class LeadCaptureService:
 
             if key not in canonical:
 
-                normalized = self._raw_to_dict(
-                    raw,
-                    item["keyword"],
-                    item["provider"],
+                canonical[key] = (
+                    self._raw_to_dict(
+                        raw,
+                        item["keyword"],
+                        item["provider"],
+                    )
                 )
-
-                # IMPORTANT:
-                # Preserve the original discovery envelope.
-                #
-                # _enrich_single_result() expects:
-                #   raw
-                #   keyword
-                #   provider
-                #
-                # The previous implementation removed those
-                # fields during deduplication, causing:
-                #
-                #   KeyError: 'raw'
-                #
-                # Normalized fields remain alongside the
-                # discovery envelope.
-
-                canonical[key] = {
-                    "raw": raw,
-                    "keyword": item["keyword"],
-                    "provider": item["provider"],
-                    **normalized,
-                }
 
                 continue
 
             existing = canonical[key]
 
-            keyword = item["keyword"]
+            keyword = item[
+                "keyword"
+            ]
 
-            if keyword not in existing["matched_keywords"]:
-
-                existing["matched_keywords"].append(
+            if keyword not in (
+                existing[
+                    "matched_keywords"
+                ]
+            ):
+                existing[
+                    "matched_keywords"
+                ].append(
                     keyword
                 )
 
             source = {
-                "provider": item["provider"],
+                "provider": (
+                    item["provider"]
+                ),
                 "url": getattr(
                     raw,
                     "url",
@@ -1294,9 +1480,12 @@ class LeadCaptureService:
                 "matched_keyword": keyword,
             }
 
-            if source not in existing["sources"]:
-
-                existing["sources"].append(
+            if source not in (
+                existing["sources"]
+            ):
+                existing[
+                    "sources"
+                ].append(
                     source
                 )
 
@@ -1583,7 +1772,9 @@ class LeadCaptureService:
             if not value:
                 continue
 
-            value = str(value).strip()
+            value = str(
+                value
+            ).strip()
 
             if not value:
                 continue
@@ -1629,7 +1820,9 @@ class LeadCaptureService:
     ) -> list[MahaRERAProject]:
 
         seen: set[str] = set()
-        result: list[MahaRERAProject] = []
+        result: list[
+            MahaRERAProject
+        ] = []
 
         for project in projects:
 

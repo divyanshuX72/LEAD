@@ -1,42 +1,35 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BACKEND_DIR / ".env"
+
+
 class Settings(BaseSettings):
-    """
-    Configuration for the ATREAL Lead Capture Agent.
-
-    This service is intentionally stateless.
-    It does not contain database credentials, authentication
-    configuration, workspace configuration, or CRM configuration.
-    """
-
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     APP_NAME: str = "ATREAL Lead Capture Agent"
     APP_VERSION: str = "1.0.0"
-
     DEBUG: bool = True
 
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
 
-    # External discovery providers
     SERPER_API_KEY: str | None = None
     TAVILY_API_KEY: str | None = None
     GOOGLE_MAPS_API_KEY: str | None = None
     BRAVE_API_KEY: str | None = None
 
-    # Gemini
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
-    # Discovery controls
     MAX_CONCURRENT_RESEARCH: int = 5
     SEARCH_TIMEOUT_SECONDS: float = 15.0
     SCRAPE_TIMEOUT_SECONDS: float = 8.0
@@ -49,7 +42,6 @@ class Settings(BaseSettings):
     DEFAULT_SEARCH_LIMIT: int = 50
     MAX_SEARCH_LIMIT: int = 500
 
-    # ATREAL-specific defaults
     TARGET_CUSTOMER: str = "Real Estate Developers"
     PRODUCT_NAME: str = "ATREAL Immersia"
 
