@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
+from urllib.parse import quote_plus
 
 import httpx
 
@@ -23,12 +23,13 @@ class GoogleMapsProvider:
 
     async def search(
         self,
-        query,
-        location=None,
-        limit=10,
-        page=1,
-        page_token=None,
-    ):
+        query: str,
+        location: str | None = None,
+        limit: int = 10,
+        page: int = 1,
+        page_token: str | None = None,
+    ) -> tuple[list[RawSearchResult], str | None]:
+
         if not self.settings.GOOGLE_MAPS_API_KEY:
             return [], None
 
@@ -65,77 +66,38 @@ class GoogleMapsProvider:
             self.settings.SEARCH_TIMEOUT_SECONDS
         )
 
-        print(
-            "[GoogleMaps] POST",
-            self.SEARCH_URL,
-            "query=",
-            text_query,
-        )
+        async with httpx.AsyncClient(
+            timeout=timeout
+        ) as client:
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout
-            ) as client:
-
-                response = await client.post(
-                    self.SEARCH_URL,
-                    json=payload,
-                    headers=headers,
-                )
-
-        except Exception as exc:
-            print(
-                "[GoogleMaps] HTTP request failed:",
-                type(exc).__name__,
-                str(exc),
-            )
-            raise
-
-        print(
-            "[GoogleMaps] response:",
-            response.status_code,
-        )
-
-        if response.status_code >= 400:
-            print(
-                "[GoogleMaps] response body:",
-                response.text[:2000],
+            response = await client.post(
+                self.SEARCH_URL,
+                json=payload,
+                headers=headers,
             )
 
         response.raise_for_status()
 
         data = response.json()
 
-        results = []
+        results: list[RawSearchResult] = []
 
         for place in data.get("places", []):
-            display_name = (
-                place.get("displayName")
-                or {}
-            )
+            display_name = place.get("displayName") or {}
 
             name = display_name.get("text")
 
-            maps_url = place.get(
-                "googleMapsUri"
-            )
-
-            website = place.get(
-                "websiteUri"
-            )
+            maps_url = place.get("googleMapsUri")
+            website = place.get("websiteUri")
 
             domain = None
 
             if website:
                 try:
-                    parsed = urlparse(
-                        website
-                    )
+                    from urllib.parse import urlparse
 
-                    domain = (
-                        parsed.netloc
-                        .lower()
-                    )
+                    parsed = urlparse(website)
+                    domain = parsed.netloc.lower()
 
                     if domain.startswith("www."):
                         domain = domain[4:]
@@ -157,9 +119,7 @@ class GoogleMapsProvider:
                     address=place.get(
                         "formattedAddress"
                     ),
-                    rating=place.get(
-                        "rating"
-                    ),
+                    rating=place.get("rating"),
                     review_count=place.get(
                         "userRatingCount"
                     ),
@@ -167,7 +127,4 @@ class GoogleMapsProvider:
                 )
             )
 
-        return (
-            results,
-            data.get("nextPageToken"),
-        )
+        return (results, data.get("nextPageToken"))
